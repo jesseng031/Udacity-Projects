@@ -1,4 +1,5 @@
 import os
+from unittest.mock import NonCallableMagicMock
 from flask import Flask, request, abort, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
@@ -16,6 +17,7 @@ def create_app(test_config=None):
   '''
   @TODO: Set up CORS. Allow '*' for origins. Delete the sample route after completing the TODOs
   '''
+  #CORS(app)
   cors = CORS(app, resources={r"/api/*": {"origins": "*"}})
 
   '''
@@ -32,7 +34,9 @@ def create_app(test_config=None):
   Create an endpoint to handle GET requests 
   for all available categories.
   '''
-  
+  @app.route('/')
+  def hello():
+    return jsonify({'message': "HELLO WORLD"})
 
 
   '''
@@ -48,15 +52,68 @@ def create_app(test_config=None):
   Clicking on the page numbers should update the questions. 
   '''
 
-  @app.route("/questions")
+  def paginate_questions(request, selection):
+    page = request.args.get('page', 1, type=int)
+    app.logger.debug(page)
+    print(page)
+    start = (page - 1) * QUESTIONS_PER_PAGE
+    end = start + QUESTIONS_PER_PAGE
+
+    questions = [question.format() for question in selection]
+    current_questions = questions[start:end]
+
+    return current_questions
+
+
+  @app.route('/questions', methods=['GET'])
   def get_questions():
-    questions = Question.query.all()
-    formatted_questions = [question.format() for question in questions]
+    selection = Question.query.order_by(Question.id).all()
+    current_question = paginate_questions(request, selection)
+   
+    if len(current_question) == 0:
+      abort(404)
 
     return jsonify({
       'success':True,
-      'questions': formatted_questions
+      'questions': current_question,
+      'total_questions': len(Question.query.all())
     })
+
+  @app.route('/questions/<int:question_id>')
+  def get_specific_questions(question_id):
+    question = Question.query.filter(Question.id == question_id).one_or_none()
+
+    if question is None:
+      abort(404)
+    else:
+      return jsonify({
+        'success': True,
+        'question': question.format()
+      })
+
+  @app.route('/questions/<int:question_id>', methods=['PATCH'])
+  def update_question(question_id):
+    
+    body = request.get_json()
+
+    try:
+      question = Question.query.filter(Question.id == question_id).one_or_none()
+      if question is None:
+        abort(404)
+      
+      if 'difficulty' in body:
+        question.difficulty = int(body.get('difficulty'))
+      
+      question.update()
+
+      return jsonify({
+        'success': True,
+        'id': question.id
+      })
+    
+    except:
+      abort(400)
+
   '''
   @TODO: 
   Create an endpoint to DELETE question using a question ID. 
@@ -64,6 +121,28 @@ def create_app(test_config=None):
   TEST: When you click the trash icon next to a question, the question will be removed.
   This removal will persist in the database and when you refresh the page. 
   '''
+
+  @app.route('/questions/<int:question_id>', methods=['DELETE'])
+  def delete_question(question_id):
+    try:
+      question = Question.query.filter(Question.id == question_id).one_or_none()
+      if question is None:
+        abort(404)
+      
+      print("still here")
+      question.delete()
+      selection = Question.query.order_by(Question.id).all()
+      current_question = paginate_questions(request, selection)
+
+      return jsonify({
+        'success': True,
+        'deleted': question_id,
+        'books': current_question,
+        'total_questions': len(Question.query.all())
+      })
+    
+    except:
+      abort(422)
 
   '''
   @TODO: 
@@ -75,6 +154,32 @@ def create_app(test_config=None):
   the form will clear and the question will appear at the end of the last page
   of the questions list in the "List" tab.  
   '''
+
+  @app.route('/questions', methods=['POST'])
+  def create_question():
+    print("creating new question")
+    body = request.get_json()
+
+    new_answer = body.get('answer', None)
+    new_category = body.get('category', None)
+    new_difficulty = body.get('difficulty', None)
+    new_question = body.get('question', None)
+
+    try:
+      question = Question(answer=new_answer, category=new_category, difficulty=new_difficulty, question=new_question)
+      question.insert()
+      selection = Question.query.order_by(Question.id).all()
+      current_questions = paginate_questions(request, selection)
+
+      return jsonify({
+        'success': True,
+        'created': question.id,
+        'questions': current_questions,
+        'total_questions': len(Question.query.all())
+      })
+
+    except:
+      abort(422)
 
   '''
   @TODO: 
@@ -114,7 +219,22 @@ def create_app(test_config=None):
   Create error handlers for all expected errors 
   including 404 and 422. 
   '''
-  
+  @app.errorhandler(404)
+  def not_found(error):
+    return jsonify({
+      "success": False,
+      "error": 404,
+      "message": "resource not found"
+    }), 404
+
+  @app.errorhandler(422)
+  def unprocessable(error):
+    return jsonify({
+      "success": False,
+      "error": 422,
+      "message": "unprocessable"
+    }), 422
+
   return app
 
     
